@@ -1,0 +1,10 @@
+version: "3.8"
+
+services:
+  ifc-to-gltf:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    volumes:
+      - .:/workspace
+    command: python3 converter.py
