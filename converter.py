@@ -5,7 +5,6 @@ import trimesh
 import time
 import ifcopenshell
 import ifcopenshell.geom
-import argparse
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -14,19 +13,11 @@ logger = logging.getLogger(__name__)
 def extract_material_colors(ifc_file):
     """Extract material colors from an IFC file for glTF conversion.
 
-    This function parses `IfcSurfaceStyle` entities to retrieve RGB and transparency values,
-    handling `IfcSurfaceStyleRendering` for accurate color representation in glTF.
-    Falls back to default opacity if transparency is missing or invalid.
-
     Args:
         ifc_file (ifcopenshell.file): The loaded IFC file object.
 
     Returns:
-        dict: A dictionary mapping style or material IDs to RGBA color lists [r, g, b, a]
-              (values in 0-1 range for glTF compatibility).
-
-    Raises:
-        Exception: If material extraction fails, logs a warning and returns an empty dict.
+        dict: A dictionary mapping style or material IDs to RGBA color lists [r, g, b, a].
     """
     material_colors = {}
     
@@ -38,11 +29,10 @@ def extract_material_colors(ifc_file):
                 for style_item in style.Styles:
                     if style_item.is_a('IfcSurfaceStyleRendering') and style_item.SurfaceColour:
                         color = style_item.SurfaceColour
-                        r = min(1.0, max(0.0, color.Red))  # glTF uses 0-1 range
+                        r = min(1.0, max(0.0, color.Red))
                         g = min(1.0, max(0.0, color.Green))
                         b = min(1.0, max(0.0, color.Blue))
-                        # Handle transparency safely
-                        a = 1.0  # Default to opaque
+                        a = 1.0
                         if hasattr(style_item, 'Transparency') and style_item.Transparency is not None:
                             try:
                                 a = min(1.0, max(0.0, 1.0 - float(style_item.Transparency)))
@@ -87,17 +77,11 @@ def extract_material_colors(ifc_file):
 def extract_textures(ifc_file):
     """Extract texture references from an IFC file, if available.
 
-    Checks for `IfcImageTexture` or `IfcPixelTexture` entities and retrieves their
-    `URLReference` for potential use in glTF. Currently logs textures without applying them.
-
     Args:
         ifc_file (ifcopenshell.file): The loaded IFC file object.
 
     Returns:
         dict: A dictionary mapping texture IDs to their URL references.
-
-    Raises:
-        Exception: If texture extraction fails, logs a warning and returns an empty dict.
     """
     textures = {}
     try:
@@ -115,10 +99,6 @@ def extract_textures(ifc_file):
 def get_product_color(product, material_colors, textures):
     """Retrieve color or texture for an IFC product.
 
-    Maps IFC products to their associated material colors or textures by checking
-    `IfcRelAssociatesMaterial` and `IfcStyledItem` relationships. Returns a default
-    color if no material or texture is found.
-
     Args:
         product (ifcopenshell.entity_instance): The IFC product (e.g., IfcWall, IfcSlab).
         material_colors (dict): Dictionary of material/style IDs to RGBA colors.
@@ -126,12 +106,8 @@ def get_product_color(product, material_colors, textures):
 
     Returns:
         dict: A dictionary with 'color' (RGBA list or None) and 'texture' (URL or None).
-
-    Raises:
-        Exception: If color/texture retrieval fails, logs a debug message and returns None.
     """
     try:
-        # Check material associations
         if hasattr(product, 'HasAssociations') and product.HasAssociations:
             for assoc in product.HasAssociations:
                 if assoc.is_a('IfcRelAssociatesMaterial'):
@@ -143,7 +119,6 @@ def get_product_color(product, material_colors, textures):
                             if hasattr(layer, 'Material') and layer.Material and layer.Material.id() in material_colors:
                                 return {'color': material_colors[layer.Material.id()], 'texture': None}
 
-        # Check representation items for styled items
         if hasattr(product, 'Representation') and product.Representation:
             for rep in product.Representation.Representations:
                 if hasattr(rep, 'Items'):
@@ -152,7 +127,6 @@ def get_product_color(product, material_colors, textures):
                             for styled_item in item.StyledByItem:
                                 if styled_item.id() in material_colors:
                                     return {'color': material_colors[styled_item.id()], 'texture': None}
-                                # Check for textures
                                 if styled_item.id() in textures:
                                     return {'color': None, 'texture': textures[styled_item.id()]}
 
@@ -164,18 +138,12 @@ def get_product_color(product, material_colors, textures):
 def convert_ifc_to_gltf(ifc_path, output_path):
     """Convert an IFC file to glTF with geometry and colors.
 
-    Main function to process an IFC file, extract geometry and materials, and export to glTF.
-    Ensures material colors are preserved to avoid grey outputs.
-
     Args:
         ifc_path (str): Path to the input IFC file.
         output_path (str): Path for the output glTF file.
 
     Returns:
         bool: True if conversion succeeds; False otherwise.
-
-    Raises:
-        Exception: If conversion fails, logs detailed error and returns False.
     """
     try:
         if not output_path.lower().endswith('.gltf'):
@@ -189,7 +157,6 @@ def convert_ifc_to_gltf(ifc_path, output_path):
         material_colors = extract_material_colors(ifc_file)
         textures = extract_textures(ifc_file)
 
-        # Setup geometry extraction
         settings = ifcopenshell.geom.settings()
         settings.set(settings.USE_WORLD_COORDS, True)
 
@@ -198,20 +165,18 @@ def convert_ifc_to_gltf(ifc_path, output_path):
         
         logger.info(f"⚡ Processing {len(products)} products...")
 
-        # Process all products
         all_vertices = []
         all_faces = []
         all_colors = []
         vertex_offset = 0
         successful = 0
-        default_color = [0.784, 0.784, 0.784, 1.0]  # Light gray (0-1 range for glTF)
+        default_color = [0.784, 0.784, 0.784, 1.0]
 
         for i, product in enumerate(products):
             if i % 50 == 0:
                 logger.info(f"🔄 Progress: {i}/{len(products)} ({i/len(products)*100:.1f}%)")
 
             try:
-                # Get geometry
                 shape = ifcopenshell.geom.create_shape(settings, product)
                 if shape and shape.geometry:
                     geometry = shape.geometry
@@ -224,7 +189,6 @@ def convert_ifc_to_gltf(ifc_path, output_path):
                             face_indices = np.array(faces, dtype=np.uint32).reshape(-1, 3)
 
                             if len(vertices) > 0 and len(face_indices) > 0:
-                                # Get product color or texture
                                 product_info = get_product_color(product, material_colors, textures)
                                 product_color = product_info['color']
                                 product_texture = product_info['texture']
@@ -234,12 +198,9 @@ def convert_ifc_to_gltf(ifc_path, output_path):
                                 if not product_color:
                                     product_color = default_color
 
-                                # Add to collections
                                 adjusted_faces = face_indices + vertex_offset
                                 all_vertices.append(vertices)
                                 all_faces.append(adjusted_faces)
-
-                                # Apply color to all vertices of this product
                                 vertex_colors = np.tile(product_color, (len(vertices), 1))
                                 all_colors.append(vertex_colors)
 
@@ -257,7 +218,6 @@ def convert_ifc_to_gltf(ifc_path, output_path):
             logger.error("❌ No geometry extracted")
             return False
 
-        # Create final mesh with colors
         logger.info("🔗 Creating mesh...")
         final_vertices = np.vstack(all_vertices)
         final_faces = np.vstack(all_faces)
@@ -270,7 +230,6 @@ def convert_ifc_to_gltf(ifc_path, output_path):
             process=False
         )
 
-        # Export to glTF
         output_dir = os.path.dirname(output_path)
         if output_dir:
             os.makedirs(output_dir, exist_ok=True)
@@ -288,42 +247,28 @@ def convert_ifc_to_gltf(ifc_path, output_path):
         return False
 
 def main():
-    """Main function to run the IFC to glTF converter from the command line.
+    """Main function to run the IFC to glTF converter with user input prompts.
 
-    Parses command-line arguments for input IFC file and output glTF file paths,
-    then calls the conversion function.
-
-    Usage:
-        python converter.py <input_ifc> <output_gltf>
-
-    Args:
-        None (parses arguments from sys.argv).
-
-    Returns:
-        None
+    Prompts the user for input IFC file path and output glTF file path, then runs the conversion.
     """
-    parser = argparse.ArgumentParser(description="Convert an IFC file to glTF format with material colors.")
-    parser.add_argument("input_ifc", type=str, help="Path to the input IFC file")
-    parser.add_argument("output_gltf", type=str, help="Path for the output glTF file")
+    print("IFC to glTF Converter")
+    input_path = input("Enter the path to the input IFC file: ").strip()
     
-    args = parser.parse_args()
-
-    # Validate input file
-    if not os.path.isfile(args.input_ifc):
-        logger.error(f"Input file does not exist: {args.input_ifc}")
+    if not input_path or not os.path.isfile(input_path):
+        print(f"Error: Input file '{input_path}' does not exist or is invalid.")
+        return
+    
+    output_path = input("Enter the path for the output glTF file: ").strip()
+    
+    if not output_path:
+        print("Error: Output file path cannot be empty.")
         return
 
-    # Ensure output path has .gltf extension
-    output_path = args.output_gltf
-    if not output_path.lower().endswith('.gltf'):
-        output_path = output_path + '.gltf'
-
-    # Run conversion
-    success = convert_ifc_to_gltf(args.input_ifc, output_path)
+    success = convert_ifc_to_gltf(input_path, output_path)
     if success:
-        logger.info("Conversion completed successfully")
+        print(f"Conversion completed successfully: {output_path}")
     else:
-        logger.error("Conversion failed")
+        print("Conversion failed. Check logs for details.")
 
 if __name__ == "__main__":
     main()
